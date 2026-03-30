@@ -10,6 +10,8 @@ RULIWEB_RSS = "https://bbs.ruliweb.com/family/211/board/300015/rss"
 PNEA_RSS = "https://pnea.net/feed/"
 DISCORD_WEBHOOK_RULIWEB = os.environ.get("DISCORD_WEBHOOK_URL", "")
 DISCORD_WEBHOOK_PNEA = os.environ.get("DISCORD_WEBHOOK_URL_PNEA", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+DISCORD_WEBHOOK_ANIME = os.environ.get("DISCORD_WEBHOOK_ANIME", "")
 CHECK_INTERVAL = 300  # 5분마다
 SEEN_FILE_RULIWEB = "seen_ruliweb.json"
 SEEN_FILE_PNEA = "seen_pnea.json"
@@ -90,7 +92,7 @@ def send_discord(webhook_url, post, footer):
         print(f"[오류] {e}")
 
 
-def check(rss_url, webhook_url, seen_file, name, footer):
+def check_rss(rss_url, webhook_url, seen_file, name, footer):
     seen = load_seen(seen_file)
     posts = fetch_rss(rss_url)
     print(f"[{name}] {len(posts)}개 글 읽어옴")
@@ -113,13 +115,97 @@ def check(rss_url, webhook_url, seen_file, name, footer):
         print(f"[{name}] 새 글 없음")
 
 
+def get_anime_info():
+    now = datetime.now()
+    next_month = now.month + 1 if now.month < 12 else 1
+    next_year = now.year if now.month < 12 else now.year + 1
+    month_str = f"{next_year}년 {next_month}월"
+
+    prompt = f"""
+당신은 애니메이션 전문가입니다.
+{month_str} 방영 예정인 신작 애니메이션 10개를 조사해주세요.
+https://animecorner.me 사이트와 트위터(X)의 최신 애니 관련 정보를 참고해주세요.
+
+아래 JSON 형식으로만 답변해주세요. 다른 텍스트는 절대 포함하지 마세요:
+
+{{
+  "month": "{month_str}",
+  "anime_list": [
+    {{
+      "rank": 1,
+      "title": "애니 제목",
+      "title_jp": "일본어 제목",
+      "air_date": "방영일 (예: 2025년 4월 5일)",
+      "ott": "시청 가능한 OTT (예: 넷플릭스, 라프텔, 애니플러스 등)",
+      "description": "한 줄 소개 (흥미롭고 간결하게)"
+    }}
+  ]
+}}
+"""
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.7}}
+
+    try:
+        res = requests.post(url, json=payload, timeout=30)
+        res.raise_for_status()
+        data = res.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        text = text.replace("```json", "").replace("```", "").strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"[오류] Gemini 요청 실패: {e}")
+        return None
+
+
+def send_anime_report(anime_data):
+    month = anime_data["month"]
+    anime_list = anime_data["anime_list"]
+
+    header = {"username": "덕후의 스케줄 알리미", "content": f"📅 **{month} 덕후의 스케줄** - 이번 달 주목할 신작 애니 10선!"}
+    requests.post(DISCORD_WEBHOOK_ANIME, json=header, timeout=10)
+
+    for anime in anime_list:
+        embed = {
+            "title": f"#{anime['rank']} {anime['title']}",
+            "description": f"_{anime.get('title_jp', '')}_",
+            "color": 0x5865F2,
+            "fields": [
+                {"name": "📺 방영일", "value": anime["air_date"], "inline": True},
+                {"name": "🎬 OTT", "value": anime["ott"], "inline": True},
+                {"name": "📝 한 줄 소개", "value": anime["description"], "inline": False},
+            ],
+            "footer": {"text": f"{month} 신작 애니 | 덕후의 스케줄"},
+        }
+        try:
+            res = requests.post(DISCORD_WEBHOOK_ANIME, json={"username": "덕후의 스케줄 알리미", "embeds": [embed]}, timeout=10)
+            if res.status_code in (200, 204):
+                print(f"[전송] {anime['title']}")
+        except Exception as e:
+            print(f"[오류] {e}")
+        time.sleep(1)
+
+    print(f"[완료] {month} 리포트 전송 완료!")
+
+
+def check_anime_report():
+    """매달 28일에 애니 리포트 전송"""
+    now = datetime.now()
+    if now.day == 28 and now.hour == 9 and now.minute < 5:
+        print("[애니 리포트] 생성 시작!")
+        anime_data = get_anime_info()
+        if anime_data:
+            send_anime_report(anime_data)
+
+
 def main():
     print("모니터링 시작!")
     while True:
         now = datetime.now().strftime("%H:%M:%S")
         print(f"\n[{now}] 확인 중...")
-        check(RULIWEB_RSS, DISCORD_WEBHOOK_RULIWEB, SEEN_FILE_RULIWEB, "루리웹", "루리웹 애니 정보")
-        check(PNEA_RSS, DISCORD_WEBHOOK_PNEA, SEEN_FILE_PNEA, "pnea", "pnea.net")
+        check_rss(RULIWEB_RSS, DISCORD_WEBHOOK_RULIWEB, SEEN_FILE_RULIWEB, "루리웹", "루리웹 애니 정보")
+        check_rss(PNEA_RSS, DISCORD_WEBHOOK_PNEA, SEEN_FILE_PNEA, "pnea", "pnea.net")
+        check_anime_report()
         print(f"5분 후 다시 확인...")
         time.sleep(CHECK_INTERVAL)
 
