@@ -4,6 +4,8 @@ import os
 import time
 from datetime import datetime
 import xml.etree.ElementTree as ET
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ===================== 설정 =====================
 RULIWEB_RSS = "https://bbs.ruliweb.com/family/211/board/300015/rss"
@@ -22,7 +24,17 @@ SEEN_FILE_ANIMECORNER = "seen_animecorner.json"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
 }
+
+
+def get_session():
+    session = requests.Session()
+    retry = Retry(total=3, backoff_factor=2, status_forcelist=[500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    return session
 
 
 def load_seen(path):
@@ -39,7 +51,8 @@ def save_seen(path, seen):
 
 def fetch_rss(url):
     try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
+        session = get_session()
+        res = session.get(url, headers=HEADERS, timeout=30)
         res.raise_for_status()
         content = res.content.decode("utf-8").replace(' xmlns="', ' xmlnsx="')
         root = ET.fromstring(content.encode("utf-8"))
