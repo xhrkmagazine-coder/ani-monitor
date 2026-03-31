@@ -8,13 +8,16 @@ import xml.etree.ElementTree as ET
 # ===================== 설정 =====================
 RULIWEB_RSS = "https://bbs.ruliweb.com/family/211/board/300015/rss"
 PNEA_RSS = "https://pnea.net/feed/"
+ANIMECORNER_RSS = "https://animecorner.me/category/news/anime-news/feed/"
 DISCORD_WEBHOOK_RULIWEB = os.environ.get("DISCORD_WEBHOOK_URL", "")
 DISCORD_WEBHOOK_PNEA = os.environ.get("DISCORD_WEBHOOK_URL_PNEA", "")
+DISCORD_WEBHOOK_ANIMECORNER = os.environ.get("DISCORD_WEBHOOK_ANIMECORNER", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 DISCORD_WEBHOOK_ANIME = os.environ.get("DISCORD_WEBHOOK_ANIME", "")
-CHECK_INTERVAL = 300  # 5분마다
+CHECK_INTERVAL = 300
 SEEN_FILE_RULIWEB = "seen_ruliweb.json"
 SEEN_FILE_PNEA = "seen_pnea.json"
+SEEN_FILE_ANIMECORNER = "seen_animecorner.json"
 # ================================================
 
 HEADERS = {
@@ -67,11 +70,11 @@ def fetch_rss(url):
         return []
 
 
-def send_discord(webhook_url, post, footer):
+def send_discord(webhook_url, post, footer, color=0x5865F2):
     embed = {
         "title": post["title"],
         "url": post["link"],
-        "color": 0x5865F2,
+        "color": color,
         "fields": [],
         "footer": {"text": footer},
         "timestamp": datetime.utcnow().isoformat(),
@@ -92,7 +95,7 @@ def send_discord(webhook_url, post, footer):
         print(f"[오류] {e}")
 
 
-def check_rss(rss_url, webhook_url, seen_file, name, footer):
+def check_rss(rss_url, webhook_url, seen_file, name, footer, color=0x5865F2):
     seen = load_seen(seen_file)
     posts = fetch_rss(rss_url)
     print(f"[{name}] {len(posts)}개 글 읽어옴")
@@ -107,7 +110,7 @@ def check_rss(rss_url, webhook_url, seen_file, name, footer):
     if new_posts:
         print(f"[{name}] 새 글 {len(new_posts)}개!")
         for post in reversed(new_posts):
-            send_discord(webhook_url, post, footer)
+            send_discord(webhook_url, post, footer, color)
             seen.add(post["id"])
             time.sleep(1)
         save_seen(seen_file, seen)
@@ -189,7 +192,6 @@ def send_anime_report(anime_data):
 
 
 def check_anime_report():
-    """매달 28일에 애니 리포트 전송"""
     now = datetime.now()
     if now.day == 28 and now.hour == 9 and now.minute < 5:
         print("[애니 리포트] 생성 시작!")
@@ -203,8 +205,9 @@ def main():
     while True:
         now = datetime.now().strftime("%H:%M:%S")
         print(f"\n[{now}] 확인 중...")
-        check_rss(RULIWEB_RSS, DISCORD_WEBHOOK_RULIWEB, SEEN_FILE_RULIWEB, "루리웹", "루리웹 애니 정보")
-        check_rss(PNEA_RSS, DISCORD_WEBHOOK_PNEA, SEEN_FILE_PNEA, "pnea", "pnea.net")
+        check_rss(RULIWEB_RSS, DISCORD_WEBHOOK_RULIWEB, SEEN_FILE_RULIWEB, "루리웹", "루리웹 애니 정보", 0x5865F2)
+        check_rss(PNEA_RSS, DISCORD_WEBHOOK_PNEA, SEEN_FILE_PNEA, "pnea", "pnea.net", 0xE24B4A)
+        check_rss(ANIMECORNER_RSS, DISCORD_WEBHOOK_ANIMECORNER, SEEN_FILE_ANIMECORNER, "애니코너", "Anime Corner", 0x1D9E75)
         check_anime_report()
         print(f"5분 후 다시 확인...")
         time.sleep(CHECK_INTERVAL)
